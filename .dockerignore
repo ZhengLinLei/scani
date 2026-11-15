@@ -1,0 +1,13 @@
+node_modules
+dist
+.angular
+data
+.git
+.env
+exports
+out-tsc
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt

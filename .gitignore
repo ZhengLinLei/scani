@@ -1,0 +1,8 @@
+node_modules/
+dist/
+exports/
+.angular/
+out-tsc/
+data/
+.env
+*.traineddata*

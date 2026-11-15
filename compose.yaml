@@ -1,0 +1,56 @@
+name: scani
+
+services:
+  app:
+    image: scani:local
+    build:
+      context: .
+      target: production
+    init: true
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: '3000'
+      DATA_DIR: /app/data
+      TRUST_PROXY: '1'
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-eng+spa}
+      OCR_LANG_PATH: ${OCR_LANG_PATH:-}
+      OCR_MAX_WIDTH: ${OCR_MAX_WIDTH:-2200}
+      OCR_MIN_CONFIDENCE: ${OCR_MIN_CONFIDENCE:-45}
+    ports:
+      - '127.0.0.1:${SCANI_PORT:-3000}:3000'
+    volumes:
+      - scans:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/api/health')
+            .then(response => { if (!response.ok) process.exit(1); })
+            .catch(() => process.exit(1));
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 12
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      SCANI_ADDRESS: ${SCANI_ADDRESS:-localhost}
+      SCANI_HTTPS_PORT: ${SCANI_HTTPS_PORT:-8443}
+      SCANI_UPSTREAM: app:3000
+    ports:
+      - '${SCANI_HTTPS_PORT:-8443}:${SCANI_HTTPS_PORT:-8443}/tcp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  scans:
+  caddy-data:
+  caddy-config:

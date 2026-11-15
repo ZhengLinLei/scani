@@ -1,0 +1,10 @@
+{
+  auto_https disable_redirects
+  # IP-address clients omit SNI; Docker's local IP differs from the LAN IP.
+  default_sni {$SCANI_ADDRESS:localhost}
+}
+
+https://{$SCANI_ADDRESS:localhost}:{$SCANI_HTTPS_PORT:8443} {
+  tls internal
+  reverse_proxy {$SCANI_UPSTREAM:app:3000}
+}

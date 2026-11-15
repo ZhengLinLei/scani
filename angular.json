@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "newProjectRoot": "projects",
+  "projects": {
+    "scani": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "frontend/src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "frontend/src/main.ts",
+            "index": "frontend/src/index.html",
+            "tsConfig": "tsconfig.json",
+            "styles": ["frontend/src/styles.css"],
+            "outputPath": "dist/scani",
+            "budgets": [{ "type": "initial", "maximumWarning": "800kB", "maximumError": "1MB" }]
+          },
+          "configurations": {
+            "production": { "outputHashing": "all" },
+            "development": { "optimization": false, "sourceMap": true }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": {
+            "buildTarget": "scani:build:development",
+            "proxyConfig": "frontend/proxy.json"
+          }
+        }
+      }
+    }
+  }
+}
