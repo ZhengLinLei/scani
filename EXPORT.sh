@@ -30,7 +30,9 @@ trap cleanupFailedExport EXIT
 
 docker image save --output "$stagingDirectory/images.tar" scani:local caddy:2-alpine
 cp -- compose.yaml Caddyfile .env.example README.md LICENSE "$stagingDirectory/"
-tar -czf "$archivePath" -C "$stagingDirectory" -- images.tar compose.yaml Caddyfile .env.example README.md LICENSE
+mkdir -p -- "$stagingDirectory/context"
+cp -- context/ocr-repair.txt "$stagingDirectory/context/"
+tar -czf "$archivePath" -C "$stagingDirectory" -- images.tar compose.yaml Caddyfile .env.example README.md LICENSE context/ocr-repair.txt
 rm -rf -- "$stagingDirectory"
 trap - EXIT
 

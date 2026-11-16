@@ -6,3 +6,4 @@ out-tsc/
 data/
 .env
 *.traineddata*
+.DS_Store

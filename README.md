@@ -66,7 +66,7 @@ docker compose stop
 ./EXPORT.sh
 ```
 
-The bundle contains `images.tar` (`scani:local` and `caddy:2-alpine`), `compose.yaml`, `Caddyfile`, `.env.example`, `LICENSE`, and this README. It excludes scans, OCR caches, `.env`, certificate keys, and Docker volume contents. The application source and development scripts are not included. Exported images use the build machine's architecture; build separately for a different target architecture.
+The bundle contains `images.tar` (`scani:local` and `caddy:2-alpine`), `compose.yaml`, `Caddyfile`, `.env.example`, `context/ocr-repair.txt`, `LICENSE`, and this README. It excludes scans, OCR caches, `.env`, certificate keys, and Docker volume contents. The application source and development scripts are not included. Exported images use the build machine's architecture; build separately for a different target architecture.
 
 On another machine with Docker and Compose:
 
@@ -131,13 +131,51 @@ Reloading restores the active session and selected page from the server, includi
 
 **TXT** contains editable Unicode OCR text in scan order, separated by form feeds. **PDF** preserves the scanned page images at their aspect ratio; it does not contain a searchable text layer. Text corrections apply to TXT. OCR confidence is an estimate; review important text.
 
+## Optional AI text repair (itsme)
+
+Enable **AI powered** in the recognition settings to repair text after each new
+capture, rescan or multi-photo merge. It starts off and the preference is saved in
+this browser. Changing it affects future captures; use **Repair with AI** to
+process an existing page. Saved manual edits are protected. AI text is shown in
+the editor and used by TXT exports; PDF continues to contain original images.
+
+Start the optional local service alongside Scani:
+
+```bash
+# Development
+COMPOSE_PROFILES=ai ./RUN.dev.sh
+# Production (after ./BUILD.sh)
+docker compose --profile ai up -d
+# Follow first-start model download and startup
+# Add -f compose.dev.yaml for development.
+docker compose --profile ai logs -f itsme
+```
+
+Alternatively, uncomment `COMPOSE_PROFILES=ai` in `.env` to include itsme on every start. The first startup downloads the Docker image and model and may take several minutes. Scani remains usable while it downloads. AI failures preserve the OCR text and show **Retry AI repair**; a photo does not need to be uploaded again.
+
+`ITSME_MODEL=qwen2.5:7b` in `.env` selects the local Ollama model run by [`zhenglinlei/itsme`](https://hub.docker.com/r/zhenglinlei/itsme). This is a quality oriented default for faithful multilingual editing, not a measured OCR benchmark. [Ollama lists it](https://ollama.com/library/qwen2.5:7b) as 4.7 GB, with support for Spanish and English; allow additional memory for inference and OCR. On constrained machines try `qwen2.5:3b` with a possible loss of quality. Changing the model only requires recreating itsme, not rebuilding Scani. Models and temporary AI sessions use separate `itsme-models` and `itsme-data` volumes. A volume reset removes them.
+
+The service uses the read-only `context/ocr-repair.txt` to preserve meaning, language, numbers and paragraphs while fixing clear OCR errors, broken words, stray glyphs and obvious page furniture. Ambiguous content should be preserved. As with any generative model, review the result; it can alter meaningful text. The OCR confidence displayed is unchanged and does not measure AI accuracy.
+
+Only OCR text is sent from the backend to itsme, after combining photo evidence; images stay in Scani. The original OCR and merge evidence remain stored privately on the server. New captures merge this evidence rather than AI-generated wording. Each repair chunk uses a fresh conversation, deleted after the reply when possible (otherwise itsme's session expiry applies). Long pages are split at paragraph, line or word boundaries into chunks of at most 2400 characters; chunks are repaired independently so context across chunk/page boundaries is not reconstructed. A failed or malformed chunk discards the whole repair and keeps the OCR text.
+
+The API uses itsme's documented `POST /api/chat` (`message`, `stream: false`, response `reply`) and `DELETE /api/session`; see the [itsme API documentation](https://github.com/ZhengLinLei/itsme#rest-api). The bundled context requests a JSON `text` response so malformed or truncated output can be rejected. A Markdown code fence around a complete JSON response is tolerated, including an omitted closing fence; incomplete JSON and surrounding commentary are still rejected. The model is selected on itsme, not in each API request. The Compose service configures sufficient message/output limits and low temperature.
+
+The Scani backend writes `[ai]` JSON logs for each repair: a shared `repairId`, chunk number, elapsed milliseconds, HTTP status, the complete model `reply`, validation/parsing errors, and session cleanup results. Requests include the original OCR `input`. Each parsed text response also produces a `comparison` event with `input`, `output`, character counts, `lengthRatio`, `unchanged` (ignoring outer whitespace), and `whitespaceOnly` (only whitespace changed). Comparisons are logged even when length validation rejects the output. These metrics describe changes, not correctness; compare against the source image to assess accuracy. The context includes examples of clear OCR substitutions, joined words, scan-border noise, and preserved uncertain readings. Replies are logged before parsing, so malformed JSON is visible too. HTTP errors include the response body. These logs contain document text; API authorization headers and session tokens are not logged. In development, follow them with `docker compose -f compose.dev.yaml logs -f --timestamps app` (use `docker compose logs -f --timestamps app` in production).
+
+To use an existing itsme instead, set `ITSME_URL` to an address reachable from the Scani backend, set `ITSME_API_KEY` if required, and omit the `ai` profile. Configure that server with the supplied context and the same limits as the Compose service; itsme's default business-assistant context and 512-token output limit are unsuitable. `ITSME_TIMEOUT_MS` is the per-chunk inference timeout (default 180000 ms). The browser never receives the API key. The bundled itsme exposes no host ports. With an external itsme, text is processed on that configured server.
+
+Direct Node users must supply these variables themselves (for example `node --env-file=.env server/index.mjs` with a supported Node version) and override the Docker-only `ITSME_URL=http://itsme:3000` with their reachable itsme address. The Docker export includes the repair context but does not bundle the optional itsme image or model cache. To enable AI on an exported deployment, pull the configured itsme image first and allow its first model download, or preload both on the target; the default non-AI deployment still works offline as described above.
+
 ## Camera and OCR behavior
 
 Continuous focus, exposure, and white balance are requested only when the camera exposes those controls. Bright paper on a dark surface can be cropped automatically; otherwise the app uses the visible guide. This is a lightweight brightness detector, not perspective correction, book dewarping, or guaranteed page recognition. Curved pages, glossy paper, diagrams, small print, and movement can reduce quality or prevent capture. Flatten the page, move closer, or improve the light. While scanning, tap **Capture now** to capture manually without waiting for the lighting, sharpness, or stability checks. Manual capture uses the same crop, OCR, and saving flow as automatic capture.
 
-Camera frames are analyzed locally. Only each captured JPEG is uploaded over HTTP; a session-scoped WebSocket reports OCR progress. Sending a continuous video stream is unnecessary for this workflow. HTTP still completes if live progress is unavailable.
+Use **Upload photo** or drag and drop a photo onto the scan preview to add a page from a JPEG, PNG or WebP file instead of opening the camera. The selected photo appears immediately after preparation as a captured page; **Next photo** lets you select another while OCR and AI run in the background. You can also drop the next image or switch to **Use camera**. Add one image at a time; recognition runs in capture order. Each selection adds one page to the current scan, using the selected accuracy and AI repair settings and the same retryable OCR queue as camera captures. **Replace from photo** replaces a saved page without requiring camera permission; the saved page remains until the replacement succeeds. Photos must be at most 20 MB and are converted locally to JPEG, fitted within 2200 × 3000 pixels without cropping or enlarging. Transparent areas get a white background.
 
-Tesseract runs on your server. On first use it downloads configured language models and caches them under `data/ocr-cache`. Images and extracted text are never sent to an external OCR API. For offline operation, pre-download the configured `.traineddata.gz` models and set `OCR_LANG_PATH` to their directory. For Docker offline operation, put models in `/app/data/languages` inside the scans volume and set `OCR_LANG_PATH=/app/data/languages` in `.env`. Host filesystem paths are not mounted automatically. Change `OCR_LANGUAGES` to supported Tesseract language codes as needed.
+Camera frames are analyzed locally. Only each captured or selected JPEG is uploaded over HTTP; a session-scoped WebSocket reports OCR progress. Sending a continuous video stream is unnecessary for this workflow. HTTP still completes if live progress is unavailable.
+
+Tesseract runs on your server. On first use it downloads configured language models and caches them under `data/ocr-cache`. Images are never sent to an external OCR API. When AI powered is enabled, extracted text is sent to the configured itsme server for repair. For offline operation, pre-download the configured `.traineddata.gz` models and set `OCR_LANG_PATH` to their directory. For Docker offline operation, put models in `/app/data/languages` inside the scans volume and set `OCR_LANG_PATH=/app/data/languages` in `.env`. Host filesystem paths are not mounted automatically. Change `OCR_LANGUAGES` to supported Tesseract language codes as needed.
 
 The OCR engine begins loading when a session is created or reopened, while you position the first page, and stays loaded between pages. Recognition defaults to **High accuracy**, using a grayscale copy up to 2200 pixels wide; the saved image and PDF retain the original scan resolution (up to 2200 × 3000). Choose **Faster** in the recognition selector to cap the OCR copy at 1600 pixels. `OCR_MAX_WIDTH` sets the server limit (800–2200, default 2200). After changing `.env`, restart the stack with `./RUN.dev.sh` (production: `docker compose up -d --wait`). This can improve recognition detail at the cost of processing time. The first model download still depends on the network and is only needed once per language cache.
 
@@ -175,7 +213,3 @@ The source is organized by responsibility:
 | `server/ocr.mjs` and `ocr-worker.mjs` | Bounded OCR queue and isolated recognition engine. |
 | `scripts/` | Shared Docker shell helpers and backend syntax checks. |
 | `tests/` | Node tests for capture, persistence, exports, OCR shutdown, and Docker scripts. |
-
-See [AGENTS.md](AGENTS.md) for contributor guidance.
-
-Before release, test on a real camera: permissions denied, device changes, dark/blurred pages, moving pages, duplicate prevention, multiple pages, rescanning an earlier page, text corrections, session recovery after restart, and both downloads. Automated tests cannot verify physical camera autofocus or real-world OCR accuracy.

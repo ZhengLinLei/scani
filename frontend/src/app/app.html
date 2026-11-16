@@ -1,0 +1,508 @@
+<div class="app-shell" [inert]="tips()">
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Scani home">
+      <span class="brand-mark">
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+      </span>scani<span class="brand-dot">.</span>
+    </a>
+    <div class="workspace-label">PERSONAL WORKSPACE</div>
+    <button
+      class="new-session" data-guide="sessions"
+      aria-keyshortcuts="N"
+      (click)="newSession()"
+      [disabled]="active() || busy() || pending() > 0"
+    >
+      <span><app-icon name="plus" /></span> New session <kbd>N</kbd>
+    </button>
+    <div class="library-heading">
+      <span>YOUR SESSIONS</span>
+      <span>{{ library().length | number: '2.0' }}</span>
+    </div>
+    <div class="session-list">
+      @for (item of library(); track item.id) {
+        <div class="session-row">
+          <button
+            class="session-item"
+            [class.chosen]="session()?.id === item.id"
+            [disabled]="active() || busy() || pending() > 0"
+            (click)="openSession(item)"
+          >
+            <span class="file-icon"><app-icon [name]="item.format === 'txt' ? 'text' : 'document'" /></span>
+            <span class="session-info">
+              <strong>{{ item.name }}</strong>
+              <small>{{ item.pages.length }} pages <span>·</span> {{ item.createdAt | date: 'MMM d' }}</small>
+            </span>
+            @if (!item.finished) {
+              <span class="draft-dot" title="Unfinished session"></span>
+            }
+          </button>
+          <button
+            type="button"
+            class="session-delete"
+            [attr.aria-label]="'Delete session ' + item.name"
+            [attr.title]="'Delete ' + item.name"
+            [disabled]="active() || busy() || pending() > 0"
+            (click)="deleteSession(item)"
+          ><app-icon name="trash" /></button>
+        </div>
+      } @empty {
+        <div class="library-empty">
+          <span class="empty-stack"><app-icon name="stack" /></span>
+          <p>A home for your pages.</p>
+          <small>Your scans will appear here,<br />ready whenever you are.</small>
+        </div>
+      }
+    </div>
+    <div class="sidebar-note">
+      <span class="small-spark"></span>
+      <strong>Less friction. More reading.</strong>
+      <p>From the page in front of you<br />to whatever comes next.</p>
+    </div>
+    <div class="sidebar-footer">
+      <span class="avatar">Y</span>
+      <span>Your workspace<small>Stored on your server</small>
+      </span>
+      <span
+        class="local-dot"
+        [class.connected]="online()"
+        [attr.title]="online() ? 'Server connected' : 'Server unavailable'"
+      ></span>
+    </div>
+  </aside>
+
+  <div class="main-shell">
+    <header class="topbar">
+      <div class="breadcrumb">Workspace <span>/</span>
+        <strong>{{ session()?.name || 'New session' }}</strong>
+      </div>
+      <button class="text-button help-button" (click)="tips.set(true)">
+        <app-icon class="help-icon" name="help" /> Quick guide</button>
+    </header>
+    <main>
+      <div class="page-heading">
+        <div>
+          <div class="eyebrow">
+            <span></span> SCAN IT INTO DIGITAL</div>
+          <h1>Your next chapter, <em>digitized.</em>
+          </h1>
+          <p>Point your camera. Turn the page. We'll take it from here.</p>
+        </div>
+        <span class="heading-stamp">PAPER <app-icon name="arrow" /> POSSIBILITY</span>
+      </div>
+      @if (error()) {
+        <div class="error-banner" role="alert">
+          <span>{{ error() }}</span>
+          <button (click)="error.set('')" aria-label="Dismiss error"><app-icon name="close" /></button>
+        </div>
+      }
+      @if (state() === 'finished' && !pending()) {
+        <section class="finished-banner" aria-live="polite">
+          <span class="finish-check"><app-icon name="check" /></span>
+          <div>
+            <h2>All together. Ready to go.</h2>
+            <p>{{ count() }} {{ count() === 1 ? 'page' : 'pages' }} saved. Download your scan and
+              make it yours.</p>
+          </div>
+          <a
+            class="button primary"
+            [href]="downloadUrl(format)"
+            (click)="download($event, format)"
+            download
+          >Download {{ format.toUpperCase() }} <app-icon name="download" />
+          </a>
+          <a
+            class="button secondary"
+            [href]="downloadUrl(format === 'txt' ? 'pdf' : 'txt')"
+            (click)="download($event, format === 'txt' ? 'pdf' : 'txt')"
+            download
+          >{{ format === 'txt' ? 'PDF' : 'TXT' }} <app-icon name="download" /></a>
+        </section>
+      }
+      <section class="scan-workspace">
+        <div class="workspace-toolbar" data-guide="setup">
+          <div class="session-title">
+            <span class="tiny-document"><app-icon name="document" /></span>
+            <input
+              aria-label="Session name"
+              [(ngModel)]="name"
+              [disabled]="!!session() || busy()"
+              maxlength="80"
+            />
+            <span class="status-pill">{{ state() === 'finished' ? 'Complete' : session() ? 'In progress' : 'New scan' }}</span>
+          </div>
+          <div class="export-format">
+            <span>Save as</span>
+            <div class="segmented" aria-label="Output format">
+              <button
+                [class.selected]="format === 'txt'"
+                [disabled]="!!session()"
+                (click)="format = 'txt'"
+              >TXT</button>
+              <button
+                [class.selected]="format === 'pdf'"
+                [disabled]="!!session()"
+                (click)="format = 'pdf'"
+              >PDF</button>
+            </div>
+          </div>
+        </div>
+        <div class="recognition-settings">
+          <label for="recognition-accuracy">Text recognition</label>
+          <select id="recognition-accuracy" [(ngModel)]="accuracy" [disabled]="busy() || active()">
+            <option value="high">High accuracy</option>
+            <option value="fast">Faster</option>
+          </select>
+          <small>{{ accuracy === 'high' ? 'More detail for small print. May take longer.' : 'Quicker processing for clear, larger text.' }} Blank pages keep their image without adding text.</small>
+        </div>
+        <div class="recognition-settings ai-settings">
+          <label class="ai-toggle"><input type="checkbox" [ngModel]="aiPowered" (ngModelChange)="setAiPowered($event)" [disabled]="busy() || active() || pending() > 0" /> AI powered</label>
+          <small>Repair OCR after each capture or merge: remove stray characters, page numbers and broken lines. Text is processed by your configured itsme server. Review the result.</small>
+        </div>
+        <div class="workspace-grid">
+          <div class="camera-column">
+            @if (replacementPage()) {
+              <div class="rescan-notice" role="status">
+                <div><strong>{{ merging() ? 'Improving text on' : 'Rescanning' }} page {{ retakeNumber() }}</strong>
+                  <small>{{ merging() ? 'Keep the same full page in view. Readings are merged; the original image stays saved.' : 'The new image and text will replace only this page.' }}</small></div>
+                <button class="text-button" (click)="cancelRetake()" [disabled]="busy() || pending() > 0">Cancel {{ merging() ? 'capture' : 'rescan' }}</button>
+              </div>
+            }
+            <div class="panel-label">
+              <span>
+                <span class="live-dot" [class.on]="hasCamera()"></span> CAMERA VIEW</span>
+              <span>{{ hasCamera() ? 'Live camera' : photoPreview() ? 'Uploaded photo' : 'Camera off' }}</span>
+            </div>
+            <div
+              class="camera-stage" data-guide="camera"
+              [class.camera-on]="hasCamera()"
+              [class.dragging-photo]="draggingPhoto()"
+              [style.aspect-ratio]="hasCamera() ? cameraAspect() : null"
+              (dragenter)="onPhotoDragEnter($event)"
+              (dragover)="onPhotoDragOver($event)"
+              (dragleave)="onPhotoDragLeave($event)"
+              (drop)="onPhotoDrop($event)"
+            >
+              <video
+                #video
+                autoplay
+                muted
+                playsinline
+                [class.visible]="hasCamera()"
+                aria-label="Live document camera"
+              ></video>
+              @if (!hasCamera() && photoPreview()) {
+                <img class="uploaded-photo-preview" [src]="photoPreview()" alt="Latest uploaded page" />
+              }
+              @if (draggingPhoto()) {
+                <div class="photo-drop-overlay"><app-icon name="upload" /><strong>Drop photo to scan</strong></div>
+              }
+              @if (!hasCamera() && !photoPreview()) {
+                <div class="camera-placeholder">
+                  <div class="paper-scene">
+                    <div class="paper-shadow"></div>
+                    <div class="paper">
+                      <span class="paper-label">THE EVERYDAY ARCHIVE</span>
+                      <div class="paper-line short"></div>
+                      <div class="paper-title">Good things<br />are worth<br />
+                        <em>keeping.</em>
+                      </div>
+                      <div class="paper-rule"></div>
+                      <div class="paper-lines">
+                        <i></i>
+                        <i></i>
+                        <i></i>
+                        <i></i>
+                        <i></i>
+                      </div>
+                      <span class="paper-page">01</span>
+                    </div>
+                    <div class="paper-flower"></div>
+                  </div>
+                  <div class="placeholder-caption">
+                    <strong>{{
+                        state() === 'finished'
+                          ? 'A good place to pause.'
+                          : 'A new life for your
+                    paper.'
+                      }}</strong>
+                    <span>{{
+                        state() === 'finished'
+                          ? 'Your pages are saved and ready to download.'
+                          : 'Use your camera, upload a photo, or drag one here.'
+                      }}</span>
+                  </div>
+                </div>
+              }
+              <div
+                class="capture-guide"
+                [class.steady]="quality()?.ready && state() === 'aligning'"
+                [class.hidden]="state() === 'finished' || photoMode()"
+              >
+                <i></i>
+                <i></i>
+                <i></i>
+                <i></i>
+              </div>
+              @if (hasCamera()) {
+                <span class="camera-badge">
+                  <span class="live-dot on"></span> {{
+                    state() === 'captured'
+                      ? 'PHOTO CAPTURED'
+                      : state() === 'processing'
+                        ? 'TAKING PHOTO'
+                        : 'AUTO CAPTURE'
+                  }}</span>
+              }
+              @if (state() === 'aligning') {
+                <div class="alignment-message">{{ alignmentMessage() }}<div class="capture-progress"><span [style.width.%]="progress()"></span></div>
+                </div>
+              }
+              @if (state() === 'processing') {
+                <div class="processing-overlay" role="status">
+                  <span class="spinner"></span>
+                  <strong>Taking your photo…</strong>
+                </div>
+              }
+            </div>
+            <div class="camera-quality">
+              <span>
+                <i [class.good]="quality()?.lit"></i> Even lighting</span>
+              <span>
+                <i [class.good]="quality()?.sharp"></i> Clear text</span>
+              <span>
+                <i [class.good]="quality()?.ready"></i> Steady page</span>
+              <span class="auto-label"><app-icon name="sparkle" /> Auto capture</span>
+            </div>
+            @if (cameraList().length > 1 && state() !== 'processing') {
+              <select
+                class="camera-select"
+                aria-label="Select camera"
+                [ngModel]="cameraId()"
+                (ngModelChange)="changeCamera($event)"
+              >
+                @for (device of cameraList(); track device.deviceId) {
+                  <option [value]="device.deviceId">{{ device.label || 'Camera' }}</option>
+                }
+              </select>
+            }
+            <div class="camera-actions" data-guide="actions">
+              <input #photoInput type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" hidden
+                (change)="uploadPhoto($event)" />
+              <div class="action-caption" aria-live="polite">
+                <span class="step-circle">@if (state() === 'captured') { <app-icon name="check" /> } @else { 1 }</span>
+                <div>
+                  <strong>{{ actionTitle() }}</strong>
+                  <small>{{ actionHint() }}</small>
+                </div>
+              </div>
+              @if (state() === 'idle') {
+                <button class="button primary" (click)="start()" [disabled]="busy()">{{ busy() ? 'Opening camera…' : 'Start scanning' }} <app-icon name="arrow" />
+                </button>
+              }
+              @if (state() === 'captured') {
+                <button class="button primary" (click)="photoMode() ? photoInput.click() : next()"
+                  [disabled]="photoMode() ? !canUploadPhoto() : busy()">{{ photoMode() ? 'Next photo' : !hasCamera() ? 'Resume scanning' : 'Next page' }} <app-icon name="arrow" />
+                </button>
+              }
+              @if (state() === 'aligning') {
+                <button type="button" class="button primary" (click)="captureManually()" [disabled]="busy() || !hasCamera()"><app-icon name="camera" /> Capture now</button>
+                <button class="button secondary" (click)="replacementPage() ? cancelRetake() : pause()">{{ replacementPage() ? 'Cancel rescan' : 'Pause' }}</button>
+              }
+              @if (state() === 'processing') {
+                <button class="button secondary" disabled>Taking photo…</button>
+              }
+              @if (state() !== 'finished') {
+                @if (photoMode() && state() === 'captured') {
+                  <button type="button" class="button secondary" (click)="next()" [disabled]="busy()">
+                    <app-icon name="camera" /> Use camera
+                  </button>
+                } @else {
+                  <button type="button" class="button secondary" (click)="photoInput.click()" [disabled]="!canUploadPhoto()">
+                    <app-icon name="upload" /> Upload photo
+                  </button>
+                }
+              }
+              @if (state() === 'finished') {
+                <button class="button secondary" (click)="newSession()" [disabled]="busy() || pending() > 0">New session <app-icon name="plus" /></button>
+              }
+            </div>
+          </div>
+
+          <aside class="pages-column" data-guide="pages">
+            <div class="panel-label">
+              <span>YOUR PAGES <b>{{ count() | number: '2.0' }}</b>
+              </span>
+              <span>{{ count() ? 'Saved automatically' : 'A clean slate' }}</span>
+            </div>
+            @if (pending()) {
+              <div class="ocr-queue" [class.queue-failed]="failedCapture()" role="status" aria-live="polite">
+                <div class="queue-heading">
+                  @if (!failedCapture()) { <span class="spinner"></span> }
+                  <strong>{{ pending() }} {{ pending() === 1 ? 'capture' : 'captures' }} pending</strong>
+                </div>
+                @if (failedCapture(); as failed) {
+                  <p>{{ failed.error }}</p>
+                  <p>Your photo is kept here. Retry it, or discard it to continue processing the remaining pages.</p>
+                  <div class="queue-actions">
+                    <button class="button secondary" (click)="retryCapture()">Retry photo</button>
+                    <button class="text-button" (click)="discardFailedCapture()">Discard photo</button>
+                  </div>
+                } @else {
+                  <p>{{ ocrStatus() }} · {{ ocrProgress() }}%</p>
+                  <div class="capture-progress"><span [style.width.%]="ocrProgress()"></span></div>
+                  <p>Keep scanning the next page. Text appears here as each photo is processed.</p>
+                }
+              </div>
+            }
+            @if (!count()) {
+              <div class="pages-empty">
+                <div class="outline-pages">
+                  <span></span>
+                  <span><app-icon name="plus" /></span>
+                </div>
+                <h2>One page at a time.</h2>
+                <p>Your captured pages and extracted<br />text will find their home here.</p>
+                <div class="empty-divider"></div>
+                <span class="little-label">MAKE ROOM FOR WHAT'S NEXT</span>
+              </div>
+            } @else {
+              <div class="page-tabs" aria-label="Captured pages">
+                @for (p of session()!.pages; track p.id; let i = $index) {
+                  <button
+                    [class.current]="selected() === i"
+                    [disabled]="busy() || active() || pending() > 0"
+                    (click)="selectPage(i)"
+                  >Page {{ i + 1 }}</button>
+                }
+              </div>
+              @if (page(); as currentPage) {
+                <div class="page-review-actions">
+                  <strong>Page {{ selected() + 1 }}</strong>
+                  <button class="button secondary retake" (click)="retake()"
+                    [disabled]="busy() || active() || pending() > 0"
+                    [attr.aria-label]="'Rescan page ' + (selected() + 1)"
+                  ><app-icon name="refresh" /> Rescan page {{ selected() + 1 }}</button>
+                  <input #replacementInput type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" hidden
+                    (change)="uploadPhoto($event, true)" />
+                  <button type="button" class="button secondary retake" (click)="replacementInput.click()"
+                    [disabled]="busy() || active() || pending() > 0"
+                    [attr.aria-label]="'Replace page ' + (selected() + 1) + ' from a photo'">
+                    <app-icon name="upload" /> Replace from photo
+                  </button>
+                  <button class="button secondary retake" (click)="retake(true)"
+                    [disabled]="busy() || active() || pending() > 0 || !!currentPage.textEdited || (currentPage.captureCount || 1) >= 10 || !!currentPage.blank"
+                    [attr.aria-label]="'Improve text on page ' + (selected() + 1) + ' with another capture'"
+                  ><app-icon name="camera" /> Improve text</button>
+                </div>
+                <p class="confidence-note">{{ currentPage.captureCount || 1 }} / 10 captures.
+                  {{ currentPage.textEdited ? 'Saved corrections are protected. Rescan to start over.' : currentPage.blank ? 'Rescan this page if it contains text.' : 'Use Improve text to combine another capture of this page before editing. The original image is kept.' }}</p>
+                <div class="page-preview">
+                  <img [src]="imageUrl(currentPage)" [alt]="'Scanned page ' + (selected() + 1)" />
+                  <span>PAGE {{ selected() + 1 | number: '2.0' }}</span>
+                </div>
+                <div class="text-heading">
+                  <strong>Extracted text</strong>
+                  <span [class.low-confidence]="!currentPage.blank && currentPage.confidence < 70">{{ currentPage.blank ? 'Blank page · no text detected' : currentPage.confidence + '% confidence' }}</span>
+                </div>
+                <textarea
+                  class="extracted-text"
+                  aria-label="Extracted page text, editable"
+                  [ngModel]="text()"
+                  (ngModelChange)="text.set($event)"
+                  [disabled]="busy() || active() || pending() > 0"
+                  [placeholder]="currentPage.blank ? 'Blank page — no text detected.' : ''"
+                  maxlength="100000"
+                ></textarea>
+                <div class="text-actions">
+                  <span>Review and edit as needed.</span>
+                  <button class="text-button" (click)="saveText()" [disabled]="!dirty() || busy() || pending() > 0">{{ dirty() ? 'Save edits' : 'Saved' }} @if (!dirty()) { <app-icon name="check" /> }</button>
+                </div>
+                @if (currentPage.aiStatus === 'repaired') {
+                  <p class="confidence-note">AI repaired · confidence above measures the original OCR. Review the wording before downloading.</p>
+                }
+                @if (currentPage.aiError) {
+                  <p class="confidence-note" role="alert">{{ currentPage.aiError }}</p>
+                }
+                @if (aiPowered && !currentPage.blank) {
+                  <button class="button secondary" (click)="repairText()" [disabled]="busy() || active() || pending() > 0 || dirty() || !!currentPage.textEdited">
+                    {{ busy() ? 'Processing…' : currentPage.aiStatus === 'failed' ? 'Retry AI repair' : 'Repair with AI' }}
+                  </button>
+                }
+                @if (!currentPage.blank && currentPage.confidence < 70) {
+                  <p class="confidence-note">Some words may need a second look. Correct the text or retake this page.</p>
+                }
+
+              }
+            }
+            <div class="session-summary" data-guide="finish">
+              <div>
+                <span>Session total</span>
+                <strong>{{ count() }} {{ count() === 1 ? 'page' : 'pages' }}</strong>
+              </div>
+              <button
+                class="button finish-button"
+                (click)="finish()"
+                [disabled]="!count() || busy() || pending() > 0 || replacementPage() !== undefined || state() === 'finished'"
+              >{{ state() === 'finished' ? 'Session complete' : pending() ? 'Processing pages…' : 'Finish session' }} <app-icon [name]="state() === 'finished' ? 'check' : 'expand'" />
+              </button>
+              @if (pending()) {
+                <small>Keep this tab open until all photos finish processing.</small>
+              }
+              <small>{{
+                  format === 'txt'
+                    ? 'Plain text. Ready for notes, search, or AI.'
+                    : 'Original
+                page images. Ready for reading.'
+                }}</small>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <section class="how-it-works">
+        <div class="how-title">
+          <span>EFFORTLESS BY DESIGN</span>
+          <h2>From paper to <em>possibility.</em>
+          </h2>
+        </div>
+        <div class="how-step">
+          <span>01</span>
+          <div>
+            <h3>Point & hold</h3>
+            <p>Keep the page flat and well lit.<br />We capture when it's steady.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <span>02</span>
+          <div>
+            <h3>Turn the page</h3>
+            <p>Tap Next page. Keep going.<br />Every page stays in your session.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <span>03</span>
+          <div>
+            <h3>Make it yours</h3>
+            <p>Finish with a PDF for reading<br />or text for your next big idea.</p>
+          </div>
+        </div>
+      </section>
+      <footer class="main-footer">
+        <span>Thoughtfully simple. Quietly useful.</span>
+        <span><app-icon name="shield" /> Your pages stay on your server.</span>
+        @if (session()) {
+          <button
+            class="text-button delete-session"
+            (click)="deleteSession()"
+            [disabled]="active() || busy() || pending() > 0"
+          >Delete session</button>
+        }
+      </footer>
+    </main>
+  </div>
+</div>
+@if (tips()) {
+  <app-guide (dismissed)="tips.set(false)" />
+}

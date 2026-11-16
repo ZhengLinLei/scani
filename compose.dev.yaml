@@ -16,6 +16,9 @@ services:
       OCR_LANG_PATH: ${OCR_LANG_PATH:-}
       OCR_MAX_WIDTH: ${OCR_MAX_WIDTH:-2200}
       OCR_MIN_CONFIDENCE: ${OCR_MIN_CONFIDENCE:-45}
+      ITSME_URL: ${ITSME_URL:-http://itsme:3000}
+      ITSME_API_KEY: ${ITSME_API_KEY:-}
+      ITSME_TIMEOUT_MS: ${ITSME_TIMEOUT_MS:-180000}
     ports:
       - '127.0.0.1:${SCANI_DEV_PORT:-4200}:4200'
     volumes:
@@ -39,6 +42,38 @@ services:
       timeout: 3s
       start_period: 30s
       retries: 24
+  itsme:
+    image: ${ITSME_IMAGE:-zhenglinlei/itsme:latest}
+    profiles: [ai]
+    init: true
+    restart: unless-stopped
+    environment:
+      PORT: '3000'
+      DATA_DIR: /app/data
+      CONTEXT_FILE: /app/context/context.txt
+      CORS_ORIGINS: ''
+      API_KEY: ${ITSME_API_KEY:-}
+      LLM_PROVIDER: ollama
+      LLM_BASE_URL: ''
+      LLM_MODEL: ${ITSME_MODEL:-qwen2.5:7b}
+      LLM_TEMPERATURE: '0'
+      LLM_MAX_TOKENS: '2048'
+      LLM_TIMEOUT_MS: ${ITSME_TIMEOUT_MS:-180000}
+      MAX_MESSAGE_CHARS: '8192'
+      MAX_BODY_BYTES: '65536'
+      MAX_HISTORY: '2'
+      LLM_CONCURRENCY: '1'
+      RATE_LIMIT_MESSAGES_PER_MIN: '120'
+      RATE_LIMIT_REQUESTS_PER_MIN: '600'
+      RATE_LIMIT_SESSIONS_PER_HOUR: '10000'
+    volumes:
+      - ./context/ocr-repair.txt:/app/context/context.txt:ro
+      - itsme-models:/root/.ollama
+      - itsme-data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 512
   caddy:
     image: caddy:2-alpine
     depends_on:
@@ -55,6 +90,8 @@ services:
       - caddy-data:/data
       - caddy-config:/config
 volumes:
+  itsme-models:
+  itsme-data:
   scans:
   angular-cache:
   caddy-data:
