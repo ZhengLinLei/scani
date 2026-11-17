@@ -8,6 +8,7 @@ import { Store, HttpError } from './store.mjs';
 import { createOcr } from './ocr.mjs';
 import { publicSession } from './ocr-merge.mjs';
 import { createCaptureHandler } from './capture.mjs';
+import { createTextRepair, repairPage } from './ai.mjs';
 import { createProgress } from './progress.mjs';
 import { exportSession } from './export.mjs';
 
@@ -15,6 +16,7 @@ const root = resolve(process.env.DATA_DIR || 'data');
 const store = new Store(root);
 await store.init();
 const ocr = createOcr(root);
+const repairText = createTextRepair();
 const app = express();
 const server = createServer(app);
 const progress = createProgress(server, store);
@@ -73,8 +75,19 @@ async function normalizeImage(buffer) {
 app.post(
   '/api/sessions/:id/pages',
   express.raw({ type: 'image/jpeg', limit: '12mb' }),
-  createCaptureHandler({ store, ocr, progress, normalizeImage })
+  createCaptureHandler({ store, ocr, progress, normalizeImage, repairText })
 );
+app.post('/api/sessions/:id/pages/:pageId/repair', async (req, res) => {
+  const session = await store.exclusive(req.params.id, async (session) => {
+    const page = session.pages.find((page) => page.id === req.params.pageId);
+    if (!page) throw new HttpError(404, 'Page not found.');
+    if (page.textEdited) throw new HttpError(409, 'Saved corrections are protected. Rescan to start over.');
+    await repairPage(page, repairText, (event) => progress.broadcast(session.id, event));
+    await store.save(session);
+    return session;
+  });
+  res.json(publicSession(session));
+});
 app.patch('/api/sessions/:id/pages/:pageId', async (req, res) => {
   if (typeof req.body?.text !== 'string' || req.body.text.length > 100_000) {
     throw new HttpError(400, 'Page text must be at most 100,000 characters.');

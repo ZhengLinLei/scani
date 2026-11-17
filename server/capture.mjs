@@ -3,13 +3,16 @@ import { randomUUID } from 'node:crypto';
 import { HttpError, validId, captureIndex } from './store.mjs';
 import { validateRecognition } from './ocr-quality.mjs';
 import { initialRecognition, mergeRecognition, publicSession, MAX_PAGE_CAPTURES } from './ocr-merge.mjs';
+import { repairPage } from './ai.mjs';
 
-export function createCaptureHandler({ store, ocr, progress, normalizeImage }) {
+export function createCaptureHandler({ store, ocr, progress, normalizeImage, repairText }) {
   return async (req, res) => {
     if (!Buffer.isBuffer(req.body) || req.body.length < 100) {
       throw new HttpError(400, 'Send a JPEG image.');
     }
     const accuracy = req.query.accuracy || 'high';
+    if (req.query.ai !== undefined && !['true', 'false'].includes(req.query.ai)) throw new HttpError(400, 'Choose a valid AI setting.');
+    const useAi = req.query.ai === 'true';
     if (!['high', 'fast'].includes(accuracy)) throw new HttpError(400, 'Choose a valid recognition mode.');
     const captureId = req.query.captureId;
     if (captureId !== undefined && !validId(captureId)) {
@@ -35,6 +38,7 @@ export function createCaptureHandler({ store, ocr, progress, normalizeImage }) {
       validateRecognition(result);
       if (original) {
         session.pages[replaceIndex] = mergeRecognition(original, result, captureId);
+        if (useAi) await repairPage(session.pages[replaceIndex], repairText, (event) => progress.broadcast(session.id, event));
         await store.save(session);
         progress.broadcast(session.id, { type: 'captured', pageId: original.id });
         return session;
@@ -48,6 +52,7 @@ export function createCaptureHandler({ store, ocr, progress, normalizeImage }) {
         captureCount: 1
       };
       page.recognition = initialRecognition(result, page.id);
+      if (useAi) await repairPage(page, repairText, (event) => progress.broadcast(session.id, event));
       const imagePath = store.imagePath(session.id, page.id);
       await writeFile(imagePath, image, { mode: 0o600 });
       if (replaceIndex >= 0) {

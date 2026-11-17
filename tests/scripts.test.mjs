@@ -23,6 +23,7 @@ async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'scani docker scripts '));
   t.after(() => rm(dir, { recursive: true, force: true }));
   await mkdir(join(dir, 'scripts'));
+  await mkdir(join(dir, 'context'));
   await mkdir(join(dir, 'bin'));
   for (const file of [
     'BUILD.sh',
@@ -30,12 +31,15 @@ async function fixture(t) {
     'EXPORT.sh',
     'RUN.dev.sh',
     'scripts/common.sh',
+    'scripts/clean.mjs',
+    'package.json',
     'compose.yaml',
     'compose.dev.yaml',
     'Caddyfile',
     '.env.example',
     'LICENSE',
-    'README.md'
+    'README.md',
+    'context/ocr-repair.txt'
   ]) {
     await copyFile(join(root, file), join(dir, file));
   }
@@ -111,7 +115,7 @@ test('export packages images and deployment config, excluding scans and secrets'
   const { stdout } = await run('tar', ['-tzf', join(dir, 'exports', archives[0])]);
   assert.deepEqual(
     stdout.trim().split('\n').sort(),
-    ['images.tar', 'compose.yaml', 'Caddyfile', '.env.example', 'README.md', 'LICENSE'].sort()
+    ['images.tar', 'compose.yaml', 'Caddyfile', '.env.example', 'README.md', 'LICENSE', 'context/ocr-repair.txt'].sort()
   );
   assert.match(await calls(dir), /image save --output .*images.tar scani:local caddy:2-alpine/);
   await writeFile(join(dir, 'fail-build'), '');

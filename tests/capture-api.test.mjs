@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { Store } from '../server/store.mjs';
 import { createCaptureHandler } from '../server/capture.mjs';
 
-async function fixture(t) {
+async function fixture(t, repairText) {
   const root = await mkdtemp(join(tmpdir(), 'scani-capture-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new Store(root);
@@ -15,7 +15,7 @@ async function fixture(t) {
   const session = await store.create({ name: 'Merge', format: 'txt' });
   const state = { calls: 0, result: { text: 'The full page has readable text.\n', confidence: 92 } };
   const handler = createCaptureHandler({
-    store, normalizeImage: async (image) => image,
+    store, repairText, normalizeImage: async (image) => image,
     ocr: { recognize: async () => { state.calls++; return state.result; } },
     progress: { broadcast() {} }
   });
@@ -112,4 +112,47 @@ test('saved manual edits and the capture limit are checked before OCR; rescan re
   saved = await store.get(session.id);
   assert.deepEqual(saved.pages[0].recognition.ids, [replacement]);
   await assert.rejects(readFile(store.imagePath(session.id, id)), { code: 'ENOENT' });
+});
+
+
+test('AI runs after OCR merge, keeps evidence private and does not poison later captures', async (t) => {
+  const inputs = [];
+  const { store, session, capture, state } = await fixture(t, async (text) => {
+    inputs.push(text);
+    return 'Repaired wording differs completely from the photograph.';
+  });
+  const first = randomUUID();
+  let result = await capture({ captureId: first, ai: 'true' });
+  assert.equal(result.pages[0].aiStatus, 'repaired');
+  assert.equal('rawText' in result.pages[0], false);
+  const saved = await store.get(session.id);
+  assert.equal(saved.pages[0].rawText, state.result.text);
+  assert.equal(saved.pages[0].textEdited, undefined);
+  const second = randomUUID();
+  result = await capture({ captureId: second, merge: first, ai: 'true' });
+  assert.equal(result.pages[0].captureCount, 2);
+  assert.deepEqual(inputs, [state.result.text, state.result.text]);
+  await capture({ captureId: second, merge: first, ai: 'true' });
+  assert.equal(inputs.length, 2, 'lost response retry must not repeat AI');
+  result = await capture({ captureId: randomUUID(), merge: first, ai: 'false' });
+  assert.equal(result.pages[0].text, state.result.text);
+  assert.equal(result.pages[0].aiStatus, undefined);
+  assert.equal(inputs.length, 2);
+});
+
+test('AI failure still commits OCR and capture id; blank and disabled captures do not call AI', async (t) => {
+  let calls = 0;
+  const { capture, state } = await fixture(t, async () => { calls++; throw new Error('offline'); });
+  const id = randomUUID();
+  const result = await capture({ captureId: id, ai: 'true' });
+  assert.equal(result.pages[0].text, state.result.text);
+  assert.equal(result.pages[0].aiStatus, 'failed');
+  assert.match(result.pages[0].aiError, /OCR text is saved/);
+  await capture({ captureId: id, ai: 'true' });
+  assert.equal(calls, 1);
+  await capture({ captureId: randomUUID() });
+  state.result = { text: '', confidence: 100, blank: true };
+  await capture({ captureId: randomUUID(), ai: 'true' });
+  assert.equal(calls, 1);
+  await assert.rejects(capture({ ai: ['true'] }), { status: 400 });
 });

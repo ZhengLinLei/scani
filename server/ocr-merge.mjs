@@ -91,7 +91,7 @@ export function mergeRecognition(page, result, captureId) {
   if (page.textEdited) {
     throw new HttpError(409, 'This page has saved text corrections. Use Rescan to start over, or keep your corrections. Combine captures before editing text.');
   }
-  const prior = page.recognition || initialRecognition(page, page.id);
+  const prior = page.recognition || initialRecognition({ ...page, text: page.rawText ?? page.text }, page.id);
   if (prior.ids.includes(captureId)) return page;
   if (prior.ids.length >= MAX_PAGE_CAPTURES) throw new HttpError(409, 'Maximum 10 captures per page. Review the text or rescan the page to start over.');
   const columns = structuredClone(prior.columns);
@@ -118,8 +118,9 @@ export function mergeRecognition(page, result, captureId) {
     .filter(({ column, choice }) => choice.weight >= column.gap).map(({ choice }) => choice);
   const text = selected.map((token, index) => token.text + (token.space || (index < selected.length - 1 ? ' ' : ''))).join('');
   if (!text.trim()) throw new HttpError(422, 'No reliable combined text found. Try a clearer capture.');
+  const { rawText, aiStatus, aiError, ...original } = page;
   return {
-    ...page, text,
+    ...original, text,
     // This remains an OCR confidence estimate, not a measured accuracy score.
     confidence: Math.round(selected.reduce((sum, token) => sum + token.confidence, 0) / selected.length),
     blank: false,
@@ -129,5 +130,5 @@ export function mergeRecognition(page, result, captureId) {
 }
 
 export function publicSession(session) {
-  return { ...session, pages: session.pages.map(({ recognition, ...page }) => page) };
+  return { ...session, pages: session.pages.map(({ recognition, rawText, ...page }) => page) };
 }
